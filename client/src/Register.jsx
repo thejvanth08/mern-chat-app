@@ -1,15 +1,31 @@
-import { useState } from "react";
+import { useState, useContext } from "react";
+import { UserContext } from "./UserContextProvider";
+import axios from "axios";
 
 const Register = () => {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  
+  const {setUser, setId} = useContext(UserContext);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    const { id } = await axios.post("/register", {
+      username,
+      password,
+    });
+    setUser(username);
+    setId(id);
+    alert(username);
+  }
 
   return (
     <div className="bg-blue-50 h-screen flex items-center">
       <form
-        action="http://localhost:5000/register"
         className="w-64 mx-auto mb-12"
-        method="POST"
+        onSubmit={handleSubmit}
+        method="post"
+        // action="http://localhost:3000/register"
       >
         <input
           value={username}
@@ -29,7 +45,7 @@ const Register = () => {
           required
           className="block w-full rounded-sm p-2 mb-2 border"
         />
-        <button className="bg-blue-500 text-white block w-full rounded-sm">
+        <button type="submit" className="bg-blue-500 text-white block w-full rounded-sm">
           Register
         </button>
       </form>
