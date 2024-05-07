@@ -2,6 +2,7 @@ const express = require("express");
 const mongoose = require("mongoose");
 require("dotenv").config();
 const User = require("./models/User");
+const Message = require("./models/Message");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
@@ -14,6 +15,22 @@ const port = process.env.PORT || 3000;
 const jwtSecret = process.env.JWT_SECRET;
 const salt = bcrypt.genSaltSync(10);
 let server;
+
+async function getUserDataFromRequest(req) {
+  const token = req.cookies?.token;
+  return new Promise((resolve, reject) => {
+    if (token) {
+      // userData (payload in jwt) -> decoded using verify()
+      jwt.verify(token, jwtSecret, {}, (err, userData) => {
+        if (err) throw err;
+        resolve(userData);
+      });
+    } else {
+      reject("no token");
+    }
+  })
+  
+}
 
 // to parse UrlEncoded (default enctype) - form data
 // POST -> available in req.body
@@ -89,6 +106,21 @@ app.post("/login", async (req, res) => {
   }
 })
 
+app.get("/messages/:userId", async (req, res) => {
+  // userId -> id of recipient
+  const { userId } = req.params;
+  // getting sender data
+  const userData = await getUserDataFromRequest(req);
+  const ourUserId = userData?.userId || false;
+  if(!ourUserId) {
+    res.json("can't retrieve messages from db");
+  }
+  const messages = await Message.find({
+    sender: { $in: [userId, ourUserId] },
+    recipient: { $in: [userId, ourUserId] }
+  }).sort({ createdAt: -1 }).exec();
+  res.json(messages);
+});
 
 
 
@@ -124,15 +156,16 @@ const start = async () => {
     }
 
     
+    // clients -> ws clients (connected to this ws server) 
+    // const clients = [...wss.clients];
     
     // notify everyone about online users
-    const clients = [...wss.clients];
-    clients.forEach(client => {
+    [...wss.clients].forEach(client => {
       // send msg for each client about each connected user/client
       // when connection is not terminated properly, it adds more connection for single client when browser refreshes
       client.send(
         JSON.stringify({
-          online: clients.map((c) => ({
+          online: [...wss.clients].map((c) => ({
             userId: c.userId,
             username: c.username,
           })),
@@ -141,15 +174,28 @@ const start = async () => {
     })
 
     // when receives msg from client -> sends msg to another select client (a sends to b)
-    connection.on("message", (message) => {
+    connection.on("message", async (message) => {
       const messageData = JSON.parse(message.toString());
       const {recipient, text} = messageData;
       if(recipient && text) {
-        clients
-        .filter(c => c.userId === recipient))
-        .forEach(c => c.send(JSON.stringify({text: text})));
-        
+        const messageDoc = await Message.create({
+          sender: connection.userId,
+          recipient,
+          text
+        });
+
+
+        // filtering only the receiver client (same user can login in multiple devices -> so it tends to multiple clients)
+        [...wss.clients]
+          .filter(c => c.userId === recipient)
+          .forEach(c => c.send(JSON.stringify({
+            id: messageDoc._id,
+            sender: connection.userId,
+            recipient,
+            text
+          })));
       }
+      
     })
   })
 }
