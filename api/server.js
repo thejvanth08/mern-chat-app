@@ -106,6 +106,10 @@ app.post("/login", async (req, res) => {
   }
 })
 
+app.post("/logout", (req, res) => {
+  res.cookie("token", "", {sameSite: "none", secure: true}).json("ok");
+});
+
 app.get("/messages/:userId", async (req, res) => {
   // userId -> id of recipient
   const { userId } = req.params;
@@ -118,11 +122,14 @@ app.get("/messages/:userId", async (req, res) => {
   const messages = await Message.find({
     sender: { $in: [userId, ourUserId] },
     recipient: { $in: [userId, ourUserId] }
-  }).sort({ createdAt: -1 }).exec();
+  }).sort({createdAt: 1});
   res.json(messages);
 });
 
-
+app.get("/people", async (req, res) => {
+  const users = await User.find({}, {"_id": 1, username: 1});
+  res.json(users);
+});
 
 
 const start = async () => {
@@ -136,6 +143,49 @@ const start = async () => {
   // it creates a WebSocket server instance that is attached to an existing HTTP server instance
   const wss = new ws.WebSocketServer({server});
   wss.on("connection", (connection, req) => {
+
+    // to send about onlinePeople to the clients
+    function notifyAboutOnlinePeople() {
+      [...wss.clients].forEach((client) => {
+        // send msg for each client about each connected user/client
+        // when connection is not terminated properly, it adds more connection for single client when browser refreshes
+        client.send(
+          JSON.stringify({
+            online: [...wss.clients].map((c) => ({
+              userId: c.userId,
+              username: c.username,
+            })),
+          })
+        );
+      });
+    }
+
+    // clearing the connection after client disconnected
+    // this reduces the memory usage in server
+    // after connected
+    connection.isAlive = true;
+    // pinging after connecting (sending)
+    connection.timer = setInterval(() => {
+      connection.ping();
+      // 1sec after pinging
+      connection.deathTimer = setTimeout(() => {
+        // if it is not received within 1 sec (when client deactivates)
+        connection.isAlive = false;
+        connection.terminate();
+        // automatically updates the offlinePeople after 5sec - when the client leaves
+        notifyAboutOnlinePeople();
+        console.log("dead");
+      }, 1000)
+    }, 5000);
+
+    // ponging - receiving the ping 
+    connection.on("pong", () => {
+      // clearing if is received before 1 sec
+      clearTimeout(connection.deathTimer);
+    });
+
+
+
     // req -> info about the connected client
     // getting jwt from req to show user info
     const cookies = req.headers.cookie;
@@ -160,18 +210,7 @@ const start = async () => {
     // const clients = [...wss.clients];
     
     // notify everyone about online users
-    [...wss.clients].forEach(client => {
-      // send msg for each client about each connected user/client
-      // when connection is not terminated properly, it adds more connection for single client when browser refreshes
-      client.send(
-        JSON.stringify({
-          online: [...wss.clients].map((c) => ({
-            userId: c.userId,
-            username: c.username,
-          })),
-        })
-      );
-    })
+    notifyAboutOnlinePeople();
 
     // when receives msg from client -> sends msg to another select client (a sends to b)
     connection.on("message", async (message) => {
@@ -197,6 +236,11 @@ const start = async () => {
       }
       
     })
+  })
+
+  // to automatically update the offlinePeople list when the user leaves without refreshing the page
+  wss.on("close", (data) => {
+    console.log("disconnect", data);
   })
 }
 

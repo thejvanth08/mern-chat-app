@@ -10,12 +10,14 @@ const Chat = () => {
   const [selectedUserId, setSelectedUserId] = useState(null);
   const [inputMsg, setInputMsg] = useState("");
   const [messages, setMessages] = useState([]);
+  const [offlinePeople, setOfflinePeople] = useState({});
+
   // auto scroll to latest msg when user sends a msg
   const divUnderMessages = useRef(null);
 
   // we must not show the currentUser in contacts
   // excluding "this"/current user
-  const {id} = useContext(UserContext);
+  const {id, user, setId, setUser} = useContext(UserContext);
   const properOnlinePeople = {...onlinePeople};
   delete properOnlinePeople[id];
 
@@ -53,36 +55,45 @@ const Chat = () => {
     if ("online" in messageData) {
       showOnlinePeople(messageData.online);   
     } else if("text" in messageData) { // to handle msg from another user
-      console.log("got new msg");
       setMessages(prev => [...prev, { ...messageData }]);
     } 
   }
 
-  function connectToWs() {
-    // ws represents ws connection b/w client and server
-    const ws = new WebSocket("ws://localhost:3000");
-    setWs(ws);
-    // event sent by wss (ws server)
-    ws.addEventListener("message", handleMessage);
-
-    // for auto re-connection
-    // when the server is restarted
-    ws.addEventListener("close", () => {
-      setTimeout(() => {
-        console.log("disconnected, trying to reconnect...")
-        connectToWs();
-      }, 1000);
-    });
+  function logout() {
+    // making the token cookie empty
+    axios.post("/logout")
+      .then(res => {
+        // this takes to register page by changing the state of entire app
+        setId(null);
+        setUser(null);
+      })
+      .catch(err => {
+        console.log(err);
+      })
   }
 
   useEffect(() => {
-    connectToWs();
+     const ws = new WebSocket("ws://localhost:3000");
+     setWs(ws);
+     // event sent by wss (ws server)
+     ws.addEventListener("message", handleMessage);
+    
+     // to reconnect - if connection is closed b/w client & server
+    //  ws.addEventListener("close", () => {
+    //   console.log("ws connection closed");
+    //   // ws.close();
+    //   setTimeout(() => {
+    //     const ws = new WebSocket("ws://localhost:3000");
+    //     setWs(ws);
+    //     console.log("ws connection reconnected");
+    //   }, 2000);
+    //  })
    
-    // closing connection
-    // return () => {
-    //   ws.close();
-    //   console.log("connection closed");
-    // };
+    // closing connection - or else multiple connections will be created
+    return () => {
+      ws.close();
+      console.log("connection closed");
+    };
   }, []);
 
   // auto scroll to recent msg
@@ -96,39 +107,118 @@ const Chat = () => {
   // to retrieve back the messages from db
   useEffect(() => {
     if(selectedUserId) {
-      axios.get("/messages/" + selectedUserId);
+      axios.get("/messages/" + selectedUserId)
+        .then(res => {
+          setMessages(res.data);
+        })
+        .catch(err => console.log(err))
     }
   }, [selectedUserId])
 
+  // to show offline people
+  // when onlinePeople changes -> it will execute
+  // people may go from online to offline, so onlinePeople is dependency
+  useEffect(() => {
+    axios.get("/people")
+    .then(res => {
+      // not including our id
+      // excluding onlinePeople
+        const offlinePeopleArr = res.data
+          .filter(p => p._id !== id)
+          .filter(p => !Object.keys(onlinePeople).includes(p._id))
+
+        const offlinePeople = {};
+        offlinePeopleArr.map((p) => {
+          offlinePeople[p._id] = p.username;      
+        })
+        setOfflinePeople(offlinePeople);
+      })
+      .catch(err => console.log(err))
+
+  
+  }, [onlinePeople]);
+
   return (
     <div className="flex h-screen">
-      <div className="bg-white w-1/3 pl-4 pt-4">
-        <Logo></Logo>
-        {Object.keys(properOnlinePeople).length > 0 &&
-          Object.keys(properOnlinePeople).map((userId) => (
-            <div
-              key={userId}
-              onClick={() => {
-                setSelectedUserId(userId);
-              }}
-              className={`border-b border-gray-100 flex items-center gap-2 cursor-pointer ${
-                userId === selectedUserId ? "bg-blue-100" : ""
-              }`}
-            >
-              {userId === selectedUserId && (
-                <div className="w-1 bg-blue-500 h-16 rounded-r-md"></div>
-              )}
-              <div className="flex gap-2 px-4 py-4">
-                <Avatar
-                  id={userId}
-                  username={properOnlinePeople[userId]}
-                ></Avatar>
-                <span className="text-gray-800">
-                  {properOnlinePeople[userId]}
-                </span>
+      <div className="bg-white w-1/3 pl-4 pt-4 flex flex-col">
+        <div className="flex-grow">
+          <Logo></Logo>
+          {/* onlinePeople */}
+          {Object.keys(properOnlinePeople).length > 0 &&
+            Object.keys(properOnlinePeople).map((userId) => (
+              <div
+                key={userId}
+                onClick={() => {
+                  setSelectedUserId(userId);
+                }}
+                className={`border-b border-gray-100 flex items-center gap-2 cursor-pointer ${
+                  userId === selectedUserId ? "bg-blue-100" : ""
+                }`}
+              >
+                {userId === selectedUserId && (
+                  <div className="w-1 bg-blue-500 h-16 rounded-r-md"></div>
+                )}
+                <div className="flex gap-2 px-4 py-4">
+                  <Avatar
+                    isOnline={true}
+                    id={userId}
+                    username={properOnlinePeople[userId]}
+                  ></Avatar>
+                  <span className="text-gray-800">
+                    {properOnlinePeople[userId]}
+                  </span>
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          {/* offlinePeople */}
+          {Object.keys(offlinePeople).length > 0 &&
+            Object.keys(offlinePeople).map((userId) => (
+              <div
+                key={userId}
+                onClick={() => {
+                  setSelectedUserId(userId);
+                }}
+                className={`border-b border-gray-100 flex items-center gap-2 cursor-pointer ${
+                  userId === selectedUserId ? "bg-blue-100" : ""
+                }`}
+              >
+                {userId === selectedUserId && (
+                  <div className="w-1 bg-blue-500 h-16 rounded-r-md"></div>
+                )}
+                <div className="flex gap-2 px-4 py-4">
+                  <Avatar
+                    isOnline={false}
+                    id={userId}
+                    username={offlinePeople[userId]}
+                  ></Avatar>
+                  <span className="text-gray-800">{offlinePeople[userId]}</span>
+                </div>
+              </div>
+            ))}
+        </div>
+        <div className="p-2 text-center flex items-center">
+          <span className="mr-2 text-sm text-gray-600 flex">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              class="w-6 h-6"
+            >
+              <path
+                fill-rule="evenodd"
+                d="M7.5 6a4.5 4.5 0 1 1 9 0 4.5 4.5 0 0 1-9 0ZM3.751 20.105a8.25 8.25 0 0 1 16.498 0 .75.75 0 0 1-.437.695A18.683 18.683 0 0 1 12 22.5c-2.786 0-5.433-.608-7.812-1.7a.75.75 0 0 1-.437-.695Z"
+                clip-rule="evenodd"
+              />
+            </svg>
+            {user}
+          </span>
+          <button
+            onClick={logout}
+            className="text-sm bg-blue-100 px-3.5 py-2 text-gray-500 border rounded-sm"
+          >
+            logout
+          </button>
+        </div>
       </div>
       <div className="flex flex-col bg-blue-100 w-2/3 p-2">
         <div className="flex-grow">
@@ -140,22 +230,33 @@ const Chat = () => {
             </div>
           )}
 
-          { !!selectedUserId && (
+          {!!selectedUserId && (
             <div className="relative h-full">
               <div className="absolute inset-0 overflow-y-auto ">
-              {messages.length > 0 && messages.map(message => (
-                <div className={`${message.sender === id ? "text-right" : "text-left"}`}>
-                  <div className={`inline-block max-w-96 p-2 my-2 rounded-sm text-sm ${message.sender === id ? "bg-blue-500 text-white" : "bg-white text-gray-500" }`}>
-                    {message.text}
-                  </div>
-                </div>
-              )) }
-              <div ref={divUnderMessages} className="h-4"></div>
+                {messages.length > 0 &&
+                  messages.map((message) => (
+                    <div
+                      className={`${
+                        message.sender === id ? "text-right" : "text-left"
+                      }`}
+                    >
+                      <div
+                        className={`inline-block max-w-96 p-2 my-2 rounded-sm text-sm ${
+                          message.sender === id
+                            ? "bg-blue-500 text-white"
+                            : "bg-white text-gray-500"
+                        }`}
+                      >
+                        {message.text}
+                      </div>
+                    </div>
+                  ))}
+                <div ref={divUnderMessages} className="h-4"></div>
               </div>
             </div>
           )}
         </div>
-        {!!selectedUserId && 
+        {!!selectedUserId && (
           <form className="flex gap-2" onSubmit={sendMessage}>
             <input
               onChange={(e) => setInputMsg(e.target.value)}
@@ -184,7 +285,7 @@ const Chat = () => {
               </svg>
             </button>
           </form>
-        }
+        )}
       </div>
     </div>
   );
