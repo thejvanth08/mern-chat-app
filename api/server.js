@@ -8,6 +8,7 @@ const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const cookieParser = require("cookie-parser");
 const ws = require("ws");
+const fs = require("fs");
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -31,6 +32,10 @@ async function getUserDataFromRequest(req) {
   })
   
 }
+
+// uploads folder files will be publicly available
+// anyone can see this who has the url of image (without auth also)
+app.use("/uploads", express.static(__dirname + "/uploads"));
 
 // to parse UrlEncoded (default enctype) - form data
 // POST -> available in req.body
@@ -171,6 +176,7 @@ const start = async () => {
       connection.deathTimer = setTimeout(() => {
         // if it is not received within 1 sec (when client deactivates)
         connection.isAlive = false;
+        clearInterval(connection.timer);
         connection.terminate();
         // automatically updates the offlinePeople after 5sec - when the client leaves
         notifyAboutOnlinePeople();
@@ -215,14 +221,34 @@ const start = async () => {
     // when receives msg from client -> sends msg to another select client (a sends to b)
     connection.on("message", async (message) => {
       const messageData = JSON.parse(message.toString());
-      const {recipient, text} = messageData;
-      if(recipient && text) {
+      const {recipient, text, file} = messageData;
+      let filename;
+      if(file) {
+        const parts = file.name.split(".");
+        const ext = parts[parts.length - 1];
+        filename = Date.now() + "." + ext;
+        const path = __dirname + "/uploads/" + filename;
+
+        // decode the file (base64 format)
+        // get actual data of the file
+        const fileData = file.data.split(",")[1];
+        const bufferData = Buffer.from(fileData, "base64");
+        fs.writeFile(path, bufferData, (err) => {
+          if (err) {
+            console.error("Error saving file:", err);
+          } else {
+            console.log("File saved:", path);
+          }
+        });
+      }
+
+      if(recipient && (text || file)) {
         const messageDoc = await Message.create({
           sender: connection.userId,
           recipient,
-          text
+          text,
+          file: file ? filename : null
         });
-
 
         // filtering only the receiver client (same user can login in multiple devices -> so it tends to multiple clients)
         [...wss.clients]
@@ -231,7 +257,8 @@ const start = async () => {
             id: messageDoc._id,
             sender: connection.userId,
             recipient,
-            text
+            text,
+            file: file ? filename: null
           })));
       }
       

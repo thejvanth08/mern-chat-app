@@ -5,7 +5,7 @@ import axios from "axios";
 const RegisterAndLogin = () => {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [loginOrRegister, setLoginOrRegister] = useState("register");
+  const [loginOrRegister, setLoginOrRegister] = useState("login");
 
   const {setUser, setId} = useContext(UserContext);
 
@@ -57,6 +57,8 @@ const RegisterAndLogin = () => {
           <div className="text-center mt-2">
             Already a member?{" "}
             <button
+            // type = "button" doesn't make it submit automatically
+              type="button"
               onClick={() => {
                 setLoginOrRegister("login");
               }}
@@ -68,6 +70,7 @@ const RegisterAndLogin = () => {
           <div className="text-center mt-2">
             Don't have an account?{" "}
             <button
+              type="button"
               onClick={() => {
                 setLoginOrRegister("register");
               }}
